@@ -372,8 +372,15 @@ packages:
   - "packages/*"
 ```
 
+**Registry Configuration (`.npmrc`):**
+
+```
+registry=https://registry.npmjs.org/
+```
+
 **Dependency Resolution:**
 
+- **Registry:** Official npm registry (fixed from Chinese mirror)
 - **Hoisting:** Shared dependencies hoisted to root
 - **Isolation:** App-specific dependencies isolated
 - **Linking:** Workspace packages linked via `workspace:*`
@@ -534,6 +541,24 @@ pnpm check-types  # Type check all packages
 pnpm dev --filter=client
 pnpm dev --filter=admin
 pnpm dev --filter=product-service
+```
+
+### 📦 Package Management
+
+**Registry Configuration:**
+
+```bash
+# Fixed registry from Chinese mirror to official npm
+pnpm config set registry https://registry.npmjs.org/
+```
+
+**Common Commands:**
+
+```bash
+pnpm install              # Install all dependencies
+pnpm add <package>        # Add package to current workspace
+pnpm add -w <package>     # Add package to root workspace
+pnpm update               # Update all packages
 ```
 
 ### 🔍 Code Quality
