@@ -189,6 +189,8 @@ apps/client/
 ├── Server Framework
 │   ├── express v5 (Web framework)
 │   └── cors (Cross-origin requests)
+├── Authentication
+│   └── @clerk/express (JWT verification & user auth)
 ├── Development
 │   ├── tsx (TypeScript execution)
 │   └── typescript (Type checking)
@@ -204,18 +206,35 @@ apps/product-service/
 ├── 📄 Configuration
 │   ├── package.json (Dependencies & scripts)
 │   ├── tsconfig.json (TypeScript config)
-│   └── .env (Environment variables)
+│   └── .env (Environment variables with Clerk keys)
 ├── 🎨 src/
-│   └── index.ts (Express server setup)
+│   └── index.ts (Express server with Clerk middleware)
 └── 🗂️ node_modules/ (Dependencies)
+```
+
+**Authentication Setup:**
+
+```typescript
+// Clerk middleware for JWT verification
+app.use(clerkMiddleware());
+
+// Protected endpoint example
+app.get("/test", (req, res) => {
+  const auth = getAuth(req);
+  if (!auth.userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  res.json({ message: "Authenticated!" });
+});
 ```
 
 **Interdependencies:**
 
 - **Clients:** Admin Dashboard (3003), Client Store (3002)
+- **Authentication:** Clerk JWT token verification
 - **Database:** Product Database (planned)
 - **Shared Types:** `@repo/types`
-- **CORS Origins:** Configured for localhost:3002, localhost:3003
+- **CORS Origins:** Configured for localhost:3002, localhost:3003 with credentials
 
 ### 📦 Order Service (`apps/order-service/`)
 
@@ -476,6 +495,99 @@ cors({
 ├── Session Handling
 ├── Route Protection
 └── Social Logins
+```
+
+**Environment Configuration:**
+
+```
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+```
+
+**Middleware Setup:**
+
+```typescript
+// apps/client/src/middleware.ts
+import { clerkMiddleware } from "@clerk/nextjs/server";
+export default clerkMiddleware();
+```
+
+### 🔗 Cross-Origin Authentication (Product Service)
+
+**Clerk Express Integration:**
+
+```
+@clerk/express
+├── JWT Token Verification
+├── User Context Extraction
+├── Protected Route Middleware
+└── Cross-Origin Request Handling
+```
+
+**Product Service Configuration:**
+
+```typescript
+// apps/product-service/src/index.ts
+import { clerkMiddleware, getAuth } from "@clerk/express";
+
+app.use(clerkMiddleware());
+
+app.get("/test", (req, res) => {
+  const auth = getAuth(req);
+  const userId = auth.userId;
+  if (!userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
+  res.json({ message: "Product service authenticated!" });
+});
+```
+
+**Environment Configuration:**
+
+```
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+```
+
+**CORS Setup for Authentication:**
+
+```typescript
+app.use(
+  cors({
+    origin: ["http://localhost:3002", "http://localhost:3003"],
+    credentials: true, // Required for cross-origin auth
+  }),
+);
+```
+
+**Client-Side Authentication Request:**
+
+```typescript
+// Proper cross-origin authenticated request
+const { getToken } = await auth();
+const token = await getToken();
+
+const response = await fetch("http://localhost:8000/test", {
+  credentials: "include", // Required for CORS auth
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+```
+
+**Authentication Flow:**
+
+```
+1. User signs in via Clerk on client (localhost:3002)
+2. Client gets JWT token from Clerk
+3. Client sends request to product service with:
+   - credentials: "include" (for CORS)
+   - Authorization: Bearer ${token}
+4. Product service verifies token via clerkMiddleware()
+5. getAuth(req) extracts userId from verified token
+6. Protected routes check userId and respond accordingly
 ```
 
 ### 💳 Payment Security (Client)
