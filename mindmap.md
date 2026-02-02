@@ -483,6 +483,45 @@ cors({
     └── CSS variables (Color system)
 ```
 
+### 🖼️ Image Optimization
+
+**Next.js Image Component:**
+
+```typescript
+// Proper usage with fill prop
+<Image
+  src="/products/1g.png"
+  fill
+  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+  alt="Product"
+  className="object-cover"
+/>
+```
+
+**Files using Image with fill:**
+
+- `apps/client/src/components/ProductCard.tsx` - Product thumbnails
+- `apps/client/src/app/products/[id]/page.tsx` - Product detail images
+- `apps/client/src/app/cart/page.tsx` - Cart item images
+- `apps/client/src/app/page.tsx` - Featured banner image
+
+**Best Practices:**
+
+```
+✓ Always add sizes prop when using fill
+✓ Use responsive sizes: "(max-width: 768px) 100vw, 50vw"
+✓ Add appropriate alt text for accessibility
+✓ Use object-cover or object-contain for proper scaling
+```
+
+**Common sizes values:**
+
+```
+Full width: "100vw"
+Responsive: "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+Fixed: "300px"
+```
+
 ## 🔐 Authentication & Security
 
 ### 👤 Authentication (Client)
@@ -565,17 +604,24 @@ app.use(
 **Client-Side Authentication Request:**
 
 ```typescript
-// Proper cross-origin authenticated request
+// JWT-based authentication with Authorization header
 const { getToken } = await auth();
 const token = await getToken();
 
 const response = await fetch("http://localhost:8000/test", {
-  credentials: "include", // Required for CORS auth
+  // credentials: "include" NOT required for JWT in Authorization header
   headers: {
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${token}`, // JWT token is sufficient
   },
 });
 ```
+
+**Important Notes:**
+
+- `credentials: "include"` is **NOT required** for JWT-based authentication
+- JWT tokens in the `Authorization` header are stateless and self-contained
+- `credentials: "include"` is only needed for cookie-based session authentication
+- Clerk Express middleware validates the JWT from the Authorization header directly
 
 **Authentication Flow:**
 
@@ -583,11 +629,21 @@ const response = await fetch("http://localhost:8000/test", {
 1. User signs in via Clerk on client (localhost:3002)
 2. Client gets JWT token from Clerk
 3. Client sends request to product service with:
-   - credentials: "include" (for CORS)
-   - Authorization: Bearer ${token}
+   - Authorization: Bearer ${token} (JWT in header)
 4. Product service verifies token via clerkMiddleware()
-5. getAuth(req) extracts userId from verified token
+5. getAuth(req) extracts userId from JWT token
 6. Protected routes check userId and respond accordingly
+```
+
+**Common Issues & Solutions:**
+
+```
+Issue: "You are not logged in" despite having valid token
+Solutions:
+  ✓ Ensure Authorization header uses ${token} not $(token)
+  ✓ Verify CLERK_SECRET_KEY is set in product service .env
+  ✓ Check clerkMiddleware() is registered before routes
+  ✗ credentials: "include" is NOT needed for JWT auth
 ```
 
 ### 💳 Payment Security (Client)
