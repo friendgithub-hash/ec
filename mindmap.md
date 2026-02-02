@@ -748,6 +748,59 @@ pnpm update               # Update all packages
 └── Branch protection
 ```
 
+### ⚡ Performance Optimization
+
+**Filesystem Performance (Windows):**
+
+**Issue:** Slow filesystem warning during development
+
+```
+Slow filesystem detected. The benchmark took 223ms.
+```
+
+**Causes:**
+
+- Windows Defender real-time scanning
+- Antivirus software scanning project files
+- HDD instead of SSD
+- High disk usage
+
+**Solutions:**
+
+1. **Exclude from Windows Defender (Recommended):**
+
+   ```
+   Windows Security → Virus & threat protection → Exclusions
+   Add folder: D:\Projects\EC
+   ```
+
+2. **Exclude specific folders:**
+
+   ```
+   D:\Projects\EC\node_modules
+   D:\Projects\EC\apps\client\.next
+   D:\Projects\EC\apps\admin\.next
+   D:\Projects\EC\.turbo
+   ```
+
+3. **Use SSD for better performance**
+
+**Impact:**
+
+- ⚠️ Slower development builds (not critical)
+- ⚠️ Longer hot reload times
+- ✅ Does NOT affect production builds
+- ✅ Does NOT break functionality
+
+**Performance Tips:**
+
+```
+✓ Exclude project directory from antivirus
+✓ Use SSD for Node.js projects
+✓ Close unnecessary applications during development
+✓ Clear .next and .turbo cache if builds are slow
+```
+
 ## 🚀 Deployment Architecture
 
 ### 📦 Build Outputs
