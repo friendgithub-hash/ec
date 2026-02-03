@@ -1,13 +1,14 @@
 {
   "name": "@repo/types",
   "version": "0.0.1",
-  "main": "src/index/ts",
+  "main": "src/index.ts",
   "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit"
   },
-  "devependencies": {
-    "@repo/typescript-config": "workspace:*"
+  "dependencies": {
+    "@repo/product-db": "workspace:*",
+    "zod": "^4.0.14"
   },
   "exports": {
     ".": {
@@ -16,6 +17,7 @@
     }
   },
   "devDependencies": {
+    "@repo/typescript-config": "workspace:*",
     "@types/node": "^24.3.1"
   }
 }
