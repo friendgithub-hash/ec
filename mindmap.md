@@ -189,6 +189,8 @@ apps/client/
 ├── Server Framework
 │   ├── express v5 (Web framework)
 │   └── cors (Cross-origin requests)
+├── Database
+│   └── @repo/product-db (Prisma client & models)
 ├── Authentication
 │   └── @clerk/express (JWT verification & user auth)
 ├── Development
@@ -206,10 +208,78 @@ apps/product-service/
 ├── 📄 Configuration
 │   ├── package.json (Dependencies & scripts)
 │   ├── tsconfig.json (TypeScript config)
-│   └── .env (Environment variables with Clerk keys)
+│   └── .env (Environment variables with Clerk & DB)
 ├── 🎨 src/
-│   └── index.ts (Express server with Clerk middleware)
+│   ├── index.ts (Express server with middleware)
+│   ├── controllers/ (Business logic)
+│   │   ├── product.controller.ts (Product CRUD)
+│   │   └── category.controller.ts (Category CRUD)
+│   ├── routes/ (API endpoints)
+│   │   ├── product.route.ts (Product routes)
+│   │   └── category.route.ts (Category routes)
+│   └── middleware/ (Custom middleware)
+│       └── authMiddleware.ts (Authentication helpers)
 └── 🗂️ node_modules/ (Dependencies)
+```
+
+**Database Integration:**
+
+```typescript
+// Prisma client usage
+import { prisma, Prisma } from "@repo/product-db";
+
+// Category CRUD operations
+export const createCategory = async (req: Request, res: Response) => {
+  const data: Prisma.CategoryCreateInput = req.body;
+  const category = await prisma.category.create({ data });
+  res.status(201).json(category);
+};
+```
+
+**API Endpoints:**
+
+```
+├── Categories
+│   ├── POST /categories (Create category)
+│   ├── GET /categories (List categories)
+│   ├── PUT /categories/:id (Update category)
+│   └── DELETE /categories/:id (Delete category)
+├── Products
+│   ├── POST /products (Create product)
+│   ├── GET /products (List products)
+│   ├── PUT /products/:id (Update product)
+│   └── DELETE /products/:id (Delete product)
+└── Health & Auth
+    ├── GET /health (Health check)
+    └── GET /test (Authentication test)
+```
+
+**Environment Configuration:**
+
+```env
+# Authentication
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Database (Required for Prisma)
+DATABASE_URL="postgresql://admin:123456@localhost:5432/products?schema=public"
+```
+
+**Common Issues & Solutions:**
+
+```
+Issue: "Cannot POST /categories"
+Solution: Check route registration - app.use("/categories", router) not "./categories"
+
+Issue: "Environment variable not found: DATABASE_URL"
+Solution: Copy DATABASE_URL from product-db package to product-service .env
+
+Issue: Prisma connection fails
+Solutions:
+  ✓ Ensure DATABASE_URL is in product-service .env
+  ✓ Verify PostgreSQL is running on specified port
+  ✓ Test connection with: pnpm prisma studio (from product-db)
+  ✓ Run: npx prisma generate (if client is outdated)
 ```
 
 **Authentication Setup:**
@@ -231,8 +301,8 @@ app.get("/test", (req, res) => {
 **Interdependencies:**
 
 - **Clients:** Admin Dashboard (3003), Client Store (3002)
+- **Database:** @repo/product-db (Prisma client)
 - **Authentication:** Clerk JWT token verification
-- **Database:** Product Database (planned)
 - **Shared Types:** `@repo/types`
 - **CORS Origins:** Configured for localhost:3002, localhost:3003 with credentials
 
@@ -343,6 +413,115 @@ packages/typescript-config/
 - **Admin:** Extends `@repo/typescript-config/nextjs`
 - **Client:** Extends `@repo/typescript-config/nextjs`
 - **Product Service:** Extends `@repo/typescript-config/base`
+
+### 🗄️ Product Database (`packages/product-db/`)
+
+**Purpose:** Prisma-based database layer for product and category management
+
+**Technology Stack:**
+
+- **ORM:** Prisma 5.x
+- **Database:** PostgreSQL
+- **Client Generation:** Custom output path
+- **Environment:** Separate .env configuration
+
+**File Structure:**
+
+```
+packages/product-db/
+├── 📄 Configuration
+│   ├── package.json (Prisma dependencies)
+│   ├── tsconfig.json (TypeScript config)
+│   ├── .env (DATABASE_URL configuration)
+│   └── prisma.config.ts (Prisma configuration)
+├── 🗂️ prisma/
+│   └── schema.prisma (Database schema)
+├── 🎨 src/
+│   ├── index.ts (Package exports)
+│   └── client.ts (Prisma client setup)
+├── 📦 generated/
+│   └── prisma/ (Generated Prisma client)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Database Schema:**
+
+```prisma
+model Product {
+  id               Int      @id @default(autoincrement())
+  name             String
+  shortDescription String
+  description      String
+  price            Int
+  sizes            String[]
+  colors           String[]
+  images           Json
+  categorySlug     String
+  category         Category @relation(fields: [categorySlug], references: [slug])
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Category {
+  id       Int       @id @default(autoincrement())
+  name     String
+  slug     String    @unique
+  products Product[]
+}
+```
+
+**Environment Configuration:**
+
+```env
+DATABASE_URL="postgresql://admin:123456@localhost:5432/products?schema=public"
+```
+
+**Prisma Client Setup:**
+
+```typescript
+// Custom client with global instance management
+import { PrismaClient } from "../generated/prisma/client";
+
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+export const prisma = globalForPrisma.prisma || new PrismaClient();
+
+if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
+```
+
+**Usage in Services:**
+
+```typescript
+// Import in product-service controllers
+import { prisma, Prisma } from "@repo/product-db";
+
+// Create operations
+const category = await prisma.category.create({ data });
+const product = await prisma.product.create({ data });
+```
+
+**Development Tools:**
+
+```bash
+# From packages/product-db/
+pnpm prisma studio    # Database GUI on localhost:5555
+pnpm prisma generate  # Generate Prisma client
+pnpm prisma migrate   # Run database migrations
+```
+
+**Common Issues & Solutions:**
+
+```
+Issue: "Environment variable not found: DATABASE_URL"
+Solution: Ensure DATABASE_URL exists in both:
+  - packages/product-db/.env (for Prisma Studio)
+  - apps/product-service/.env (for API usage)
+
+Issue: Prisma client outdated
+Solution: Run `npx prisma generate` from product-db directory
+
+Issue: Database connection fails
+Solution: Verify PostgreSQL is running and credentials are correct
+```
 
 ## 🔄 Build System & Development
 
