@@ -13,7 +13,8 @@ export const shouldBeUser = async (
 ) => {
   const { userId } = getAuth(request);
   if (!userId) {
-    return reply.send({ message: "You are not logged in!" });
+    return reply.status(401).send({ message: "You are not logged in!" });
   }
   request.userId = userId;
+  // No return needed - middleware continues to next handler
 };
