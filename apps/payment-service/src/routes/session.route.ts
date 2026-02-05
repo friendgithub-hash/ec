@@ -55,7 +55,10 @@ sessionRoute.get("/:session_id", async (c) => {
 
   console.log(session);
 
-  return c.json(session);
+  return c.json({
+    status: session.status,
+    paymentStatus: session.payment_status,
+  });
 });
 
 export default sessionRoute;
