@@ -312,6 +312,9 @@ app.get("/test", (req, res) => {
 
 - **Framework:** Fastify 5.5.0
 - **Runtime:** Node.js with TypeScript (ES Modules)
+- **Database:** MongoDB (Mongoose)
+- **Message Queue:** Kafka (KafkaJS)
+- **Authentication:** @clerk/fastify
 - **Port:** 8001
 
 **Key Dependencies:**
@@ -319,12 +322,20 @@ app.get("/test", (req, res) => {
 ```
 ├── Server Framework
 │   └── fastify v5.5.0 (Fast web framework)
+├── Database
+│   ├── mongoose (MongoDB ODM)
+│   └── @repo/order-db (Order models & connection)
+├── Message Queue
+│   └── @repo/kafka (Kafka producer/consumer)
+├── Authentication
+│   └── @clerk/fastify (JWT verification)
 ├── Development
 │   ├── tsx v4.20.5 (TypeScript execution)
 │   ├── typescript v5.9.2 (Type checking)
 │   └── @types/node v20 (Node.js types)
 └── Shared Packages
-    └── @repo/typescript-config (TS config)
+    ├── @repo/typescript-config (TS config)
+    └── @repo/types (Shared types)
 ```
 
 **File Structure:**
@@ -334,26 +345,221 @@ apps/order-service/
 ├── 📄 Configuration
 │   ├── package.json (Dependencies & scripts)
 │   ├── tsconfig.json (TypeScript config)
-│   └── .env (Environment variables)
+│   └── .env (Environment variables: MongoDB, Clerk, Kafka)
 ├── 🎨 src/
-│   └── index.ts (Fastify server setup)
+│   ├── index.ts (Fastify server with Clerk & Kafka)
+│   ├── middleware/
+│   │   └── authMiddleware.ts (Clerk authentication)
+│   ├── routes/
+│   │   └── order.ts (Order API routes)
+│   └── utils/
+│       ├── kafka.ts (Kafka consumer setup)
+│       ├── order.ts (Order creation logic)
+│       └── subscription.ts (Kafka message handlers)
 └── 🗂️ node_modules/ (Dependencies)
 ```
 
-**Server Configuration:**
+**Kafka Integration:**
 
 ```typescript
-// Fastify server with ES modules support
-const fastify = Fastify();
-await fastify.listen({ port: 8001 });
+// Consumer setup
+consumer.subscribe("payment.successful", async (message) => {
+  const order = message.value;
+  await createOrder(order);
+});
+
+// Order creation from Kafka message
+export const createOrder = async (order: Ordertype) => {
+  const newOrder = new Order(order);
+  await newOrder.save();
+};
+```
+
+**API Endpoints:**
+
+```
+├── Orders
+│   ├── GET /user-orders (Get user's orders - protected)
+│   └── GET /orders (Get all orders)
+├── Health & Auth
+│   ├── GET /health (Health check)
+│   └── GET /test (Authentication test)
+```
+
+**Environment Configuration:**
+
+```env
+# Authentication
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Database
+MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/orders
+
+# Kafka (configured in @repo/kafka)
 ```
 
 **Interdependencies:**
 
 - **Clients:** Admin Dashboard (3003), Client Store (3002)
-- **Database:** Order Database (planned)
+- **Database:** MongoDB via @repo/order-db
+- **Message Queue:** Kafka via @repo/kafka (payment.successful topic)
+- **Authentication:** Clerk Fastify plugin
 - **Module System:** ES Modules (`"type": "module"`)
-- **Development:** Watch mode with tsx and .env support
+
+### 💳 Payment Service (`apps/payment-service/`)
+
+**Technology Stack:**
+
+- **Framework:** Hono (Lightweight web framework)
+- **Runtime:** Node.js with TypeScript
+- **Payment Provider:** Stripe
+- **Message Queue:** Kafka (KafkaJS)
+- **Authentication:** @hono/clerk-auth
+- **Port:** 8002
+
+**Key Dependencies:**
+
+```
+├── Server Framework
+│   ├── hono (Web framework)
+│   ├── @hono/node-server (Node.js adapter)
+│   └── hono/cors (CORS middleware)
+├── Payment Processing
+│   └── stripe (Stripe SDK)
+├── Message Queue
+│   └── @repo/kafka (Kafka producer/consumer)
+├── Authentication
+│   └── @hono/clerk-auth (JWT verification)
+├── Development
+│   ├── tsx (TypeScript execution)
+│   └── typescript (Type checking)
+└── Shared Packages
+    ├── @repo/typescript-config (TS config)
+    └── @repo/types (Shared types)
+```
+
+**File Structure:**
+
+```
+apps/payment-service/
+├── 📄 Configuration
+│   ├── package.json (Dependencies & scripts)
+│   ├── tsconfig.json (TypeScript config)
+│   └── .env (Stripe keys, Clerk keys, Kafka config)
+├── 🎨 src/
+│   ├── index.ts (Hono server with middleware)
+│   ├── middleware/
+│   │   └── authMiddleware.ts (Clerk authentication)
+│   ├── routes/
+│   │   ├── session.route.ts (Stripe checkout sessions)
+│   │   └── webhook.route.ts (Stripe webhooks)
+│   └── utils/
+│       ├── stripe.ts (Stripe client)
+│       ├── stripeProduct.ts (Product/price helpers)
+│       └── kafka.ts (Kafka producer setup)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Stripe Integration:**
+
+```typescript
+// Create checkout session
+const session = await stripe.checkout.sessions.create({
+  line_items: lineItems,
+  client_reference_id: userId,
+  mode: "payment",
+  ui_mode: "custom",
+  return_url: `${process.env.RETURN_URL}/return?session_id={CHECKOUT_SESSION_ID}`,
+});
+
+// Webhook handler
+webhookRoute.post("/stripe", async (c) => {
+  const event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    // Send to Kafka for order creation
+    producer.send("payment.successful", {
+      value: {
+        userId: session.client_reference_id,
+        email: session.customer_details?.email,
+        amount: session.amount_total,
+        status: session.payment_status === "paid" ? "success" : "failed",
+        shippingaddress: formatAddress(session.collected_information),
+        products: lineItems.data.map(item => ({...})),
+      },
+    });
+  }
+});
+```
+
+**API Endpoints:**
+
+```
+├── Sessions
+│   ├── POST /sessions/create-checkout-session (Create payment session - protected)
+│   └── GET /sessions/:session_id (Get session status)
+├── Webhooks
+│   └── POST /webhook/stripe (Stripe webhook events)
+└── Health
+    └── GET /health (Health check)
+```
+
+**Environment Configuration:**
+
+```env
+# Authentication
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Return URL (for ngrok in development)
+RETURN_URL=http://localhost:3002
+```
+
+**Webhook Setup (Development):**
+
+```bash
+# Option 1: Use ngrok to expose local server
+ngrok http 8002
+# Configure webhook in Stripe Dashboard: https://xxx.ngrok.io/webhook/stripe
+
+# Option 2: Use Stripe CLI
+stripe listen --forward-to localhost:8002/webhook/stripe
+```
+
+**Kafka Integration:**
+
+```typescript
+// Producer sends payment success event
+producer.send("payment.successful", {
+  value: {
+    userId: string,
+    email: string,
+    amount: number,
+    status: "success" | "failed",
+    shippingaddress: string,
+    products: Array<{ name; quantity; price }>,
+  },
+});
+
+// Consumer listens for product events
+consumer.subscribe("product.created", async (message) => {
+  // Handle product creation
+});
+```
+
+**Interdependencies:**
+
+- **Clients:** Client Store (3002) for checkout
+- **Payment Provider:** Stripe API
+- **Message Queue:** Kafka (payment.successful topic)
+- **Order Service:** Receives payment events via Kafka
+- **Authentication:** Clerk Hono middleware
 
 ## 📦 Shared Packages
 
@@ -523,6 +729,250 @@ Issue: Database connection fails
 Solution: Verify PostgreSQL is running and credentials are correct
 ```
 
+### 🗄️ Order Database (`packages/order-db/`)
+
+**Purpose:** Mongoose-based database layer for order management
+
+**Technology Stack:**
+
+- **ODM:** Mongoose 9.x
+- **Database:** MongoDB
+- **Schema:** Order model with validation
+
+**File Structure:**
+
+```
+packages/order-db/
+├── 📄 Configuration
+│   ├── package.json (Mongoose dependencies)
+│   ├── tsconfig.json (TypeScript config)
+│   └── .env (MONGO_URL configuration)
+├── 🎨 src/
+│   ├── index.ts (Package exports)
+│   ├── connection.ts (MongoDB connection)
+│   └── order-model.ts (Order schema & model)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Order Schema:**
+
+```typescript
+const OrderSchema = new Schema(
+  {
+    userId: { type: String, required: true },
+    amount: { type: Number, required: true },
+    status: { type: String, required: true, enum: ["success", "failed"] },
+    products: {
+      type: [
+        {
+          name: { type: String, required: true },
+          quantity: { type: Number, required: true },
+          price: { type: Number, required: true },
+        },
+      ],
+      required: true,
+    },
+    shippingaddress: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+```
+
+**Environment Configuration:**
+
+```env
+MONGO_URL="mongodb+srv://user:pass@cluster.mongodb.net/orders?appName=cluster01"
+```
+
+**Connection Setup:**
+
+```typescript
+export const connectOrderDB = async () => {
+  if (isConnected) return;
+  if (!process.env.MONGO_URL) {
+    throw new Error("MONGO_URL is not defined in env file!");
+  }
+  await mongoose.connect(process.env.MONGO_URL);
+  isConnected = true;
+  console.log("Connected to MongoDB");
+};
+```
+
+**Usage in Services:**
+
+```typescript
+// Import in order-service
+import { Order, connectOrderDB } from "@repo/order-db";
+
+// Connect to database
+await connectOrderDB();
+
+// Create order
+const newOrder = new Order(orderData);
+await newOrder.save();
+```
+
+### 📨 Kafka Package (`packages/kafka/`)
+
+**Purpose:** Centralized Kafka producer/consumer for event-driven architecture
+
+**Technology Stack:**
+
+- **Client:** KafkaJS 2.2.4
+- **Brokers:** Multiple broker support
+- **Topics:** payment.successful, product.created, product.deleted
+
+**File Structure:**
+
+```
+packages/kafka/
+├── 📄 Configuration
+│   ├── package.json (KafkaJS dependencies)
+│   └── tsconfig.json (TypeScript config)
+├── 🎨 src/
+│   ├── index.ts (Package exports)
+│   ├── producer.ts (Kafka producer)
+│   └── consumer.ts (Kafka consumer)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Producer Setup:**
+
+```typescript
+import { Kafka } from "kafkajs";
+
+const kafka = new Kafka({
+  clientId: "payment-service",
+  brokers: ["localhost:9094", "localhost:9095", "localhost:9096"],
+});
+
+const producer = kafka.producer();
+
+export const send = async (topic: string, message: any) => {
+  await producer.connect();
+  await producer.send({
+    topic,
+    messages: [{ value: JSON.stringify(message.value) }],
+  });
+};
+```
+
+**Consumer Setup:**
+
+```typescript
+const consumer = kafka.consumer({ groupId: "order-group" });
+
+export const subscribe = async (topic: string, callback: Function) => {
+  await consumer.connect();
+  await consumer.subscribe({ topic, fromBeginning: true });
+
+  await consumer.run({
+    eachMessage: async ({ topic, partition, message }) => {
+      const value = JSON.parse(message.value.toString());
+      await callback({ topic, partition, value });
+    },
+  });
+};
+```
+
+**Topics & Events:**
+
+```
+├── payment.successful
+│   ├── Producer: Payment Service
+│   ├── Consumer: Order Service
+│   └── Payload: { userId, email, amount, status, shippingaddress, products }
+├── product.created
+│   ├── Producer: Product Service
+│   ├── Consumer: Payment Service
+│   └── Payload: { id, name, price, ... }
+└── product.deleted
+    ├── Producer: Product Service
+    ├── Consumer: Payment Service
+    └── Payload: { id }
+```
+
+**Usage in Services:**
+
+```typescript
+// Producer (Payment Service)
+import { producer } from "@repo/kafka";
+producer.send("payment.successful", {
+  value: { userId, email, amount, status, shippingaddress, products },
+});
+
+// Consumer (Order Service)
+import { consumer } from "@repo/kafka";
+consumer.subscribe("payment.successful", async (message) => {
+  await createOrder(message.value);
+});
+```
+
+**Configuration:**
+
+```
+Brokers: localhost:9094, localhost:9095, localhost:9096
+Client IDs: payment-service, product-service, order-service
+Consumer Groups: payment-group, product-group, order-group
+```
+
+### 🎯 Types Package (`packages/types/`)
+
+**Purpose:** Shared TypeScript types across all services
+
+**File Structure:**
+
+```
+packages/types/
+├── 📄 Configuration
+│   ├── package.json (Package definition)
+│   └── tsconfig.json (TypeScript config)
+├── 🎨 src/
+│   ├── index.ts (Package exports)
+│   ├── auth.ts (Authentication types)
+│   ├── cart.ts (Cart & shipping types)
+│   ├── order.ts (Order types)
+│   └── product.ts (Product types)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Type Definitions:**
+
+```typescript
+// Cart types
+export type CartItemType = Product & {
+  quantity: number;
+  selectedSize: string;
+  selectedColor: string;
+};
+
+// Order types
+export type Ordertype = OrderSchemaType & {
+  _id: string;
+};
+
+// Stripe product types
+export type StripeProductType = {
+  id: string;
+  name: string;
+  price: number;
+};
+
+// Authentication types
+export type CustomJwtSessionClaims = {
+  metadata?: {
+    role?: string;
+  };
+};
+```
+
+**Usage:**
+
+```typescript
+// Import in any service
+import { CartItemType, Ordertype, StripeProductType } from "@repo/types";
+```
+
 ## 🔄 Build System & Development
 
 ### 🚀 Turbo Configuration (`turbo.json`)
@@ -596,10 +1046,18 @@ registry=https://registry.npmjs.org/
 │ Product Service │ 8000 │ Product API         │
 │ Order Service   │ 8001 │ Order management    │
 │ Payment Service │ 8002 │ Payment processing  │
+│ Kafka Brokers   │ 9094 │ Message broker 1    │
+│                 │ 9095 │ Message broker 2    │
+│                 │ 9096 │ Message broker 3    │
+│ PostgreSQL      │ 5432 │ Product database    │
+│ MongoDB         │27017 │ Order database      │
+│ Prisma Studio   │ 5555 │ Database GUI        │
 └─────────────────┴──────┴─────────────────────┘
 ```
 
 ### 🔗 Service Communication
+
+**Synchronous (REST API):**
 
 ```
 Client (3002) ←→ Product Service (8000)
@@ -608,6 +1066,22 @@ Client (3002) ←→ Order Service (8001)
 Admin (3003) ←→ Product Service (8000)
 Admin (3003) ←→ Payment Service (8002)
 Admin (3003) ←→ Order Service (8001)
+```
+
+**Asynchronous (Kafka Events):**
+
+```
+Payment Service → Kafka → Order Service
+  Topic: payment.successful
+  Event: Payment completed, create order
+
+Product Service → Kafka → Payment Service
+  Topic: product.created
+  Event: Product added, sync to Stripe
+
+Product Service → Kafka → Payment Service
+  Topic: product.deleted
+  Event: Product removed, cleanup Stripe
 ```
 
 ### 🛡️ CORS Configuration
@@ -619,6 +1093,96 @@ cors({
   origin: ["http://localhost:3002", "http://localhost:3003"],
   credentials: true,
 });
+```
+
+**Payment Service CORS:**
+
+```javascript
+cors({
+  origin: ["http://localhost:3002"],
+});
+```
+
+## 📨 Event-Driven Architecture
+
+### 🔄 Kafka Event Flow
+
+**Payment Success Flow:**
+
+```
+1. User completes payment on Client (3002)
+2. Stripe sends webhook to Payment Service (8002)
+3. Payment Service validates webhook signature
+4. Payment Service publishes to Kafka:
+   Topic: payment.successful
+   Data: { userId, email, amount, status, shippingaddress, products }
+5. Order Service consumes event from Kafka
+6. Order Service creates order in MongoDB
+7. Order Service sends confirmation (future: email/notification)
+```
+
+**Product Sync Flow:**
+
+```
+1. Admin creates product on Admin Dashboard (3003)
+2. Product Service saves to PostgreSQL
+3. Product Service publishes to Kafka:
+   Topic: product.created
+   Data: { id, name, price, ... }
+4. Payment Service consumes event
+5. Payment Service creates/updates Stripe product
+```
+
+### 📊 Kafka Topics
+
+```
+├── payment.successful
+│   ├── Partitions: 1
+│   ├── Producer: Payment Service
+│   ├── Consumer: Order Service (order-group)
+│   └── Message: Order creation data
+├── product.created
+│   ├── Partitions: 3
+│   ├── Producer: Product Service
+│   ├── Consumer: Payment Service (payment-group)
+│   └── Message: Product sync data
+└── product.deleted
+    ├── Partitions: 1
+    ├── Producer: Product Service
+    ├── Consumer: Payment Service (payment-group)
+    └── Message: Product cleanup data
+```
+
+### ⚡ Event Processing
+
+**Consumer Groups:**
+
+```
+├── order-group (Order Service)
+│   └── Subscribed to: payment.successful
+├── payment-group (Payment Service)
+│   ├── Subscribed to: product.created
+│   └── Subscribed to: product.deleted
+└── product-group (Product Service)
+    └── Reserved for future events
+```
+
+**Message Format:**
+
+```typescript
+{
+  topic: string,
+  partition: number,
+  value: {
+    // Event-specific payload
+    userId?: string,
+    email?: string,
+    amount?: number,
+    status?: "success" | "failed",
+    shippingaddress?: string,
+    products?: Array<{name, quantity, price}>,
+  }
+}
 ```
 
 ## 🎨 UI/UX Architecture
@@ -1047,19 +1611,190 @@ apps/product-service/ # Node.js service
 
 ## 📋 Technology Summary
 
-| Category             | Technologies                                          |
-| -------------------- | ----------------------------------------------------- |
-| **Frontend**         | Next.js 15.4.5, React 19, TypeScript, Tailwind CSS v4 |
-| **Backend**          | Express.js 5, Fastify 5.5.0, Node.js, TypeScript      |
-| **Build System**     | Turbo, pnpm, Turbopack                                |
-| **UI Components**    | shadcn/ui, Radix UI, Recharts                         |
-| **State Management** | Zustand, React Hook Form                              |
-| **Authentication**   | Clerk                                                 |
-| **Payments**         | Stripe                                                |
-| **Styling**          | Tailwind CSS v4, PostCSS                              |
-| **Code Quality**     | ESLint, Prettier, TypeScript                          |
-| **Development**      | Hot reload, TypeScript, CORS                          |
+| Category             | Technologies                                                            |
+| -------------------- | ----------------------------------------------------------------------- |
+| **Frontend**         | Next.js 15.4.5, React 19, TypeScript, Tailwind CSS v4                   |
+| **Backend**          | Express.js 5, Fastify 5.5.0, Hono, Node.js, TypeScript                  |
+| **Databases**        | PostgreSQL (Prisma), MongoDB (Mongoose)                                 |
+| **Message Queue**    | Apache Kafka (KafkaJS)                                                  |
+| **Build System**     | Turbo, pnpm, Turbopack                                                  |
+| **UI Components**    | shadcn/ui, Radix UI, Recharts                                           |
+| **State Management** | Zustand, React Hook Form                                                |
+| **Authentication**   | Clerk (@clerk/nextjs, @clerk/express, @clerk/fastify, @hono/clerk-auth) |
+| **Payments**         | Stripe (Checkout, Webhooks)                                             |
+| **Styling**          | Tailwind CSS v4, PostCSS                                                |
+| **Code Quality**     | ESLint, Prettier, TypeScript                                            |
+| **Development**      | Hot reload, TypeScript, CORS, ngrok                                     |
+
+## 🔧 Troubleshooting Guide
+
+### 💳 Payment & Webhook Issues
+
+**Issue: Stripe webhook not receiving events**
+
+```
+Symptoms: Payment completes but order not created
+Cause: Webhook endpoint not publicly accessible
+
+Solutions:
+✓ Use ngrok: ngrok http 8002
+✓ Configure webhook in Stripe Dashboard with ngrok URL
+✓ Or use Stripe CLI: stripe listen --forward-to localhost:8002/webhook/stripe
+✓ Verify STRIPE_WEBHOOK_SECRET is set in .env
+```
+
+**Issue: Order validation failed - amount is string**
+
+```
+Error: Cast to Number failed for value "success" at path "amount"
+Cause: Webhook sending wrong data to Kafka
+
+Solution:
+✓ Fixed in webhook.route.ts line 33
+✓ Changed: amount: "success" → amount: session.amount_total
+✓ Added: status: "success" | "failed"
+✓ Added: shippingaddress from session data
+```
+
+**Issue: Stripe product not found**
+
+```
+Error: No such product: '1'
+Cause: Product doesn't exist in Stripe
+
+Solutions:
+✓ Auto-create products in session.route.ts
+✓ Or manually create products in Stripe Dashboard
+✓ Ensure product IDs match between database and Stripe
+```
+
+### 📨 Kafka Issues
+
+**Issue: Kafka connection refused**
+
+```
+Error: ECONNREFUSED localhost:9094
+Cause: Kafka brokers not running
+
+Solutions:
+✓ Start Kafka: docker-compose up -d kafka
+✓ Or start Kafka manually
+✓ Verify brokers are running on ports 9094, 9095, 9096
+```
+
+**Issue: KafkaJS partitioner warning**
+
+```
+Warning: KafkaJS v2.0.0 switched default partitioner
+Solution:
+✓ Set environment variable: KAFKAJS_NO_PARTITIONER_WARNING=1
+✓ Or use Partitioners.LegacyPartitioner in producer config
+```
+
+**Issue: Consumer not receiving messages**
+
+```
+Symptoms: Payment succeeds but order not created
+Causes:
+1. Consumer not subscribed to topic
+2. Consumer group offset issue
+3. Kafka broker not running
+
+Solutions:
+✓ Check consumer subscription in subscription.ts
+✓ Verify topic name matches: "payment.successful"
+✓ Reset consumer group offset if needed
+✓ Check Kafka logs for errors
+```
+
+### 🔐 Authentication Issues
+
+**Issue: "You are not logged in" despite valid token**
+
+```
+Cause: Multiple possible issues
+
+Solutions:
+✓ Check Authorization header: Bearer ${token} not $(token)
+✓ Verify CLERK_SECRET_KEY in service .env
+✓ Ensure clerkMiddleware() is registered before routes
+✓ Check CORS configuration allows credentials
+✗ credentials: "include" NOT needed for JWT auth
+```
+
+**Issue: Fastify Clerk plugin duplicate registration**
+
+```
+Error: The decorator 'auth' has already been added
+Cause: clerkPlugin registered multiple times
+
+Solution:
+✓ Register clerkPlugin only once at root level
+✓ Remove duplicate registrations in route plugins
+```
+
+### 🗄️ Database Issues
+
+**Issue: DATABASE_URL not found**
+
+```
+Error: Environment variable not found: DATABASE_URL
+Cause: .env file missing or not in correct location
+
+Solutions:
+✓ Copy DATABASE_URL to service .env file
+✓ For Prisma: packages/product-db/.env
+✓ For API: apps/product-service/.env
+✓ Verify .env file is in correct directory
+```
+
+**Issue: MongoDB connection failed**
+
+```
+Error: MongoServerError: Authentication failed
+Cause: Invalid credentials or connection string
+
+Solutions:
+✓ Verify MONGO_URL in order-service/.env
+✓ Check MongoDB Atlas IP whitelist
+✓ Verify username/password are correct
+✓ Test connection: mongosh "mongodb+srv://..."
+```
+
+### 🚀 Development Issues
+
+**Issue: Port already in use**
+
+```
+Error: EADDRINUSE: address already in use :::3002
+Solutions:
+✓ Kill process: npx kill-port 3002
+✓ Or find and kill: netstat -ano | findstr :3002
+✓ Change port in package.json dev script
+```
+
+**Issue: Slow filesystem warning**
+
+```
+Warning: Slow filesystem detected
+Solutions:
+✓ Exclude project from Windows Defender
+✓ Add to antivirus exclusions
+✓ Use SSD instead of HDD
+✓ Not critical - doesn't break functionality
+```
+
+**Issue: Module not found after adding package**
+
+```
+Error: Cannot find module '@repo/types'
+Solutions:
+✓ Run: pnpm install from root
+✓ Verify package.json has correct workspace reference
+✓ Check pnpm-workspace.yaml includes package
+✓ Restart dev server
+```
 
 ---
 
-_This mindmap represents the current state of the EC e-commerce platform as of the latest commit. The architecture is designed for scalability, maintainability, and developer experience._
+_This mindmap represents the current state of the EC e-commerce platform with full Kafka integration, Stripe payments, and microservices architecture. Last updated: February 2026._
