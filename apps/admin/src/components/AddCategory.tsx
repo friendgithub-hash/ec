@@ -102,7 +102,13 @@ const AddCategory = () => {
                 )}
               />
 
-              <Button type="submit">Submit</Button>
+              <Button
+                type="submit"
+                disabled={mutation.isPending}
+                className="disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {mutation.isPending ? "Submitting..." : "submit"}
+              </Button>
             </form>
           </Form>
         </SheetDescription>
