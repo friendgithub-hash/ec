@@ -7,6 +7,7 @@ const OrderSchema = new Schema(
   {
     userId: { type: String, required: true },
     amount: { type: Number, required: true },
+    email: { type: String, required: true },
     status: { type: String, required: true, enum: OrderStatus },
     products: {
       type: [
