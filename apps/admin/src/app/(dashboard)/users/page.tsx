@@ -24,14 +24,26 @@ const getData = async (): Promise<{ data: User[]; totalCount: number }> => {
   }
 };
 
+// const UsersPage = async () => {
+//   const res = await getData();
+//   return (
+//     <div className="">
+//       <div className="mb-8 px-4 py-2 bg-secondary rounded-md">
+//         <h1 className="font-semibold">All Users</h1>
+//       </div>
+//       <DataTable columns={columns} data={res.data} />
+//     </div>
+//   );
+// };
+
 const UsersPage = async () => {
-  const res = await getData();
+  const data = await getData(); // Rename from 'res' to 'data'
   return (
     <div className="">
       <div className="mb-8 px-4 py-2 bg-secondary rounded-md">
         <h1 className="font-semibold">All Users</h1>
       </div>
-      <DataTable columns={columns} data={res.data} />
+      <DataTable columns={columns} data={data.data} /> {/* Use data.data */}
     </div>
   );
 };
