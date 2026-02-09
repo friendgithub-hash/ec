@@ -34,6 +34,8 @@ EC/
 
 - **Framework:** Next.js 15.4.5 (React 19.2.0)
 - **Styling:** Tailwind CSS v4 + shadcn/ui
+- **Authentication:** @clerk/nextjs (Role-based access control)
+- **State Management:** @tanstack/react-query
 - **Build Tool:** Turbopack
 - **Port:** 3003
 
@@ -43,6 +45,7 @@ EC/
 ├── UI Components
 │   ├── @radix-ui/* (Headless UI primitives)
 │   ├── @tanstack/react-table (Data tables)
+│   ├── @tanstack/react-query (Server state management)
 │   ├── recharts (Charts & analytics)
 │   ├── lucide-react (Icons)
 │   └── class-variance-authority (Component variants)
@@ -54,6 +57,10 @@ EC/
 │   ├── tailwindcss v4 (Utility-first CSS)
 │   ├── tailwind-merge (Class merging)
 │   └── next-themes (Theme management)
+├── Notifications
+│   └── react-toastify (Toast notifications)
+├── Authentication
+│   └── @clerk/nextjs (User authentication & authorization)
 └── Date Handling
     └── date-fns (Date utilities)
 ```
@@ -64,25 +71,35 @@ EC/
 apps/admin/
 ├── 📄 Configuration
 │   ├── package.json (Dependencies & scripts)
-│   ├── next.config.ts (Next.js config)
+│   ├── next.config.ts (Next.js config with image domains)
 │   ├── tailwind.config.js (Tailwind config)
 │   ├── postcss.config.mjs (PostCSS config)
 │   ├── tsconfig.json (TypeScript config)
-│   └── components.json (shadcn/ui config)
+│   ├── components.json (shadcn/ui config)
+│   └── .env (Clerk keys, service URLs, Cloudinary)
 ├── 🎨 src/
 │   ├── app/ (App Router)
-│   │   ├── layout.tsx (Root layout with sidebar)
-│   │   ├── page.tsx (Dashboard home)
-│   │   ├── globals.css (Global styles)
-│   │   ├── users/ (User management)
-│   │   ├── products/ (Product management)
-│   │   └── payments/ (Payment management)
+│   │   ├── layout.tsx (Root layout with ClerkProvider)
+│   │   ├── (auth)/ (Auth routes - public)
+│   │   │   ├── sign-in/[[...sign-in]]/page.tsx
+│   │   │   └── unauthorized/page.tsx
+│   │   └── (dashboard)/ (Protected routes)
+│   │       ├── layout.tsx (Dashboard layout with sidebar)
+│   │       ├── page.tsx (Dashboard home with charts)
+│   │       ├── users/ (User management)
+│   │       ├── products/ (Product management)
+│   │       └── orders/ (Order management)
 │   ├── components/ (Reusable components)
 │   │   ├── ui/ (shadcn/ui components)
+│   │   ├── providers/ (QueryProvider, ThemeProvider)
 │   │   ├── AppSidebar.tsx (Navigation sidebar)
 │   │   ├── Navbar.tsx (Top navigation)
-│   │   ├── charts/ (Chart components)
-│   │   └── providers/ (Context providers)
+│   │   ├── AddUser.tsx (User creation form)
+│   │   ├── AddProduct.tsx (Product creation with Cloudinary)
+│   │   ├── AddCategory.tsx (Category creation)
+│   │   ├── CardList.tsx (Order cards)
+│   │   └── charts/ (Chart components)
+│   ├── middleware.ts (Clerk authentication middleware)
 │   └── lib/ (Utilities)
 │       └── utils.ts (Helper functions)
 └── 🖼️ public/ (Static assets)
@@ -90,12 +107,149 @@ apps/admin/
     └── users/ (User avatars)
 ```
 
+**Authentication & Authorization:**
+
+```typescript
+// middleware.ts - Role-based access control
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+
+const isPublicRoute = createRouteMatcher(["/sign-in(.*)", "/unauthorized(.*)"]);
+
+export default clerkMiddleware(async (auth, req) => {
+  if (!isPublicRoute(req)) {
+    await auth.protect();
+
+    const { userId, sessionClaims } = await auth();
+    if (userId && sessionClaims) {
+      const userRole = (sessionClaims as CustomJwtSessionClaims).metadata?.role;
+
+      if (userRole !== "admin") {
+        return Response.redirect(new URL("/unauthorized", req.url));
+      }
+    }
+  }
+});
+```
+
+**React Query Integration:**
+
+```typescript
+// AddCategory.tsx - Using react-query for mutations
+const mutation = useMutation({
+  mutationFn: async (data) => {
+    const token = await getToken();
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_PRODUCT_SERVICE_URL}/categories`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      },
+    );
+    if (!res.ok) throw new Error("Failed to create category!");
+  },
+  onSuccess: () => toast.success("Category created successfully!"),
+  onError: (error) => toast.error(error.message),
+});
+```
+
+**Cloudinary Integration:**
+
+```typescript
+// AddProduct.tsx - Image upload to Cloudinary
+const res = await fetch(
+  `https://api.cloudinary.com/v1_1/${process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME}/image/upload`,
+  {
+    method: "POST",
+    body: formData,
+  },
+);
+const data = await res.json();
+if (data.secure_url) {
+  form.setValue("images", {
+    ...currentImages,
+    [color]: data.secure_url,
+  });
+}
+```
+
+**Environment Configuration:**
+
+```env
+# Clerk Authentication
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
+NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
+NEXT_PUBLIC_CLERK_SIGN_IN_FALLBACK_REDIRECT_URL=/
+
+# Service URLs
+NEXT_PUBLIC_PRODUCT_SERVICE_URL=http://localhost:8000
+NEXT_PUBLIC_ORDER_SERVICE_URL=http://localhost:8001
+NEXT_PUBLIC_PAYMENT_SERVICE_URL=http://localhost:8002
+NEXT_PUBLIC_AUTH_SERVICE_URL=http://localhost:8003
+
+# Cloudinary
+NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME=your_cloud_name
+```
+
+**Next.js Configuration:**
+
+```typescript
+// next.config.ts - Image domain configuration
+const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.pexels.com",
+      },
+      {
+        protocol: "https",
+        hostname: "img.clerk.com", // Fixed: was "image.clerk.com"
+      },
+      {
+        protocol: "https",
+        hostname: "res.cloudinary.com",
+      },
+    ],
+  },
+};
+```
+
+**Common Issues & Solutions:**
+
+```
+Issue: Hydration mismatch warning
+Solution: Add suppressHydrationWarning to <body> tag in layout.tsx
+
+Issue: Cannot read properties of undefined (reading 'length')
+Cause: API response structure mismatch (res.data vs data.data)
+Solution: Ensure getData returns correct structure matching usage
+
+Issue: Clerk image hostname not configured
+Error: hostname "img.clerk.com" is not configured
+Solution: Add img.clerk.com (not image.clerk.com) to next.config.ts
+
+Issue: Cloudinary upload fails
+Error: fetch failed with invalid URL
+Solution: Fix URL typo - https://api.cloudinary.com (not https//api)
+
+Issue: User creation fails with 401
+Cause: Email address format mismatch (Clerk expects snake_case)
+Solution: Transform emailAddress to email_address before sending to Clerk API
+```
+
 **Interdependencies:**
 
-- **Shared Packages:** `@repo/eslint-config`, `@repo/typescript-config`
-- **External APIs:** Product Service (port 8000), Payment Service (port 8002)
-- **Authentication:** Integrated auth system
-- **Database:** Connects to product and order databases
+- **Shared Packages:** `@repo/eslint-config`, `@repo/typescript-config`, `@repo/types`
+- **External APIs:** Product Service (8000), Order Service (8001), Payment Service (8002), Auth Service (8003)
+- **Authentication:** Clerk with role-based access control (admin only)
+- **Image Storage:** Cloudinary for product images
+- **State Management:** React Query for server state
 
 ### 🛒 Client Store (`apps/client/`)
 
@@ -406,6 +560,243 @@ MONGO_URL=mongodb+srv://user:pass@cluster.mongodb.net/orders
 - **Message Queue:** Kafka via @repo/kafka (payment.successful topic)
 - **Authentication:** Clerk Fastify plugin
 - **Module System:** ES Modules (`"type": "module"`)
+
+### 🔐 Auth Service (`apps/auth-service/`)
+
+**Technology Stack:**
+
+- **Framework:** Express.js 5.2.1
+- **Runtime:** Node.js with TypeScript
+- **Authentication:** @clerk/express (User management)
+- **CORS:** Enabled for admin app
+- **Port:** 8003
+
+**Key Dependencies:**
+
+```
+├── Server Framework
+│   ├── express v5 (Web framework)
+│   └── cors (Cross-origin requests)
+├── Authentication
+│   └── @clerk/express (Clerk SDK for user management)
+├── Development
+│   ├── tsx (TypeScript execution)
+│   └── typescript (Type checking)
+└── Shared Packages
+    ├── @repo/typescript-config (TS config)
+    └── @repo/types (Shared types)
+```
+
+**File Structure:**
+
+```
+apps/auth-service/
+├── 📄 Configuration
+│   ├── package.json (Dependencies & scripts)
+│   ├── tsconfig.json (TypeScript config)
+│   └── .env (Clerk credentials)
+├── 🎨 src/
+│   ├── index.ts (Express server with Clerk middleware)
+│   ├── middleware/
+│   │   └── authMiddleware.ts (shouldBeUser, shouldBeAdmin)
+│   ├── routes/
+│   │   └── user.route.ts (User CRUD via Clerk API)
+│   └── utils/
+│       └── clerk.ts (Clerk client initialization)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Clerk Integration:**
+
+```typescript
+// User management via Clerk API
+router.get("/", async (req, res) => {
+  const users = await clerkClient.users.getUserList();
+  res.status(200).json(users);
+});
+
+router.post("/", async (req, res) => {
+  const { emailAddress, ...rest } = req.body;
+  const newUser = {
+    ...rest,
+    email_address: emailAddress, // Transform to snake_case for Clerk API
+  };
+  const user = await clerkClient.users.createUser(newUser);
+  res.status(200).json(user);
+});
+```
+
+**API Endpoints:**
+
+```
+├── Users
+│   ├── GET /users (List all users - admin only)
+│   ├── GET /users/:id (Get user by ID - admin only)
+│   ├── POST /users (Create user - admin only)
+│   └── DELETE /users/:id (Delete user - admin only)
+└── Health
+    └── GET /health (Health check)
+```
+
+**Environment Configuration:**
+
+```env
+CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+```
+
+**Authentication Middleware:**
+
+```typescript
+export const shouldBeAdmin = (req, res, next) => {
+  const auth = getAuth(req);
+  if (!auth.userId) {
+    return res.status(401).json({ message: "Your are not logged in!" });
+  }
+  const claims = auth.sessionClaims as CustomJwtSessionClaims;
+  if (claims.metadata?.role !== "admin") {
+    return res.status(403).send({ message: "Unauthorized!" });
+  }
+  req.userId = auth.userId;
+  return next();
+};
+```
+
+**Interdependencies:**
+
+- **Clients:** Admin Dashboard (3003)
+- **Authentication:** Clerk API for user management
+- **CORS:** Configured for localhost:3003
+
+### 📧 Email Service (`apps/email-service/`)
+
+**Technology Stack:**
+
+- **Framework:** Node.js with TypeScript
+- **Email Provider:** Gmail API (OAuth2)
+- **Message Queue:** Kafka (KafkaJS)
+- **Authentication:** Google OAuth2
+
+**Key Dependencies:**
+
+```
+├── Email
+│   ├── googleapis (Gmail API client)
+│   └── nodemailer (Fallback SMTP - not used)
+├── Message Queue
+│   └── @repo/kafka (Kafka consumer)
+├── Development
+│   ├── tsx (TypeScript execution)
+│   └── typescript (Type checking)
+└── Shared Packages
+    ├── @repo/typescript-config (TS config)
+    └── @repo/types (Shared types)
+```
+
+**File Structure:**
+
+```
+apps/email-service/
+├── 📄 Configuration
+│   ├── package.json (Dependencies & scripts)
+│   ├── tsconfig.json (TypeScript config)
+│   └── .env (Google OAuth credentials)
+├── 🎨 src/
+│   ├── index.ts (Kafka consumer for user.created events)
+│   └── utils/
+│       └── mailer.ts (Gmail API email sender)
+└── 🗂️ node_modules/ (Dependencies)
+```
+
+**Gmail API Integration:**
+
+```typescript
+import { google } from "googleapis";
+
+const oauth2Client = new google.auth.OAuth2(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  "https://developers.google.com/oauthplayground",
+);
+
+oauth2Client.setCredentials({
+  refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
+});
+
+const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+
+const sendMail = async ({ email, subject, text }) => {
+  const message = [`To: ${email}`, `Subject: ${subject}`, "", text].join("\n");
+  const encodedMessage = Buffer.from(message)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw: encodedMessage },
+  });
+};
+```
+
+**Kafka Integration:**
+
+```typescript
+const consumer = createConsumer(kafka, "email-service");
+
+const start = async () => {
+  await consumer.connect(); // Connect FIRST
+
+  await consumer.subscribe("user.created", async (message) => {
+    const { email, username } = message.value;
+    await sendMail({
+      email,
+      subject: "Welcome to our store",
+      text: `Welcome ${username}. Your account has been created!`,
+    });
+  });
+};
+```
+
+**Environment Configuration:**
+
+```env
+GOOGLE_CLIENT_ID=244826209128-xxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxx
+GOOGLE_REFRESH_TOKEN=1//04xxx (starts with 1//)
+```
+
+**OAuth2 Setup:**
+
+1. Go to Google OAuth Playground: https://developers.google.com/oauthplayground/
+2. Select Gmail API v1 → `https://mail.google.com/`
+3. Click "Authorize APIs"
+4. Click "Exchange authorization code for tokens"
+5. Copy the **refresh_token** (starts with `1//`)
+6. Add to `.env` file
+
+**Common Issues & Solutions:**
+
+```
+Issue: TLS connection failed (ESOCKET)
+Cause: Router/ISP blocking SMTP ports (465, 587)
+Solution: Use Gmail API instead of SMTP (nodemailer)
+
+Issue: Refresh token is access token
+Symptom: Token starts with "ya29." instead of "1//"
+Solution: Get refresh token from OAuth Playground, not access token
+
+Issue: Consumer not receiving messages
+Cause: consumer.connect() called after consumer.subscribe()
+Solution: Always connect FIRST, then subscribe
+```
+
+**Interdependencies:**
+
+- **Message Queue:** Kafka (user.created topic)
+- **Email Provider:** Gmail API (OAuth2)
+- **Future Topics:** order.created, payment.successful
 
 ### 💳 Payment Service (`apps/payment-service/`)
 
@@ -1046,6 +1437,7 @@ registry=https://registry.npmjs.org/
 │ Product Service │ 8000 │ Product API         │
 │ Order Service   │ 8001 │ Order management    │
 │ Payment Service │ 8002 │ Payment processing  │
+│ Auth Service    │ 8003 │ User management     │
 │ Kafka Brokers   │ 9094 │ Message broker 1    │
 │                 │ 9095 │ Message broker 2    │
 │                 │ 9096 │ Message broker 3    │
@@ -1082,6 +1474,10 @@ Product Service → Kafka → Payment Service
 Product Service → Kafka → Payment Service
   Topic: product.deleted
   Event: Product removed, cleanup Stripe
+
+Auth Service → Kafka → Email Service
+  Topic: user.created
+  Event: User registered, send welcome email
 ```
 
 ### 🛡️ CORS Configuration
@@ -1580,11 +1976,13 @@ apps/product-service/ # Node.js service
 ### 🔮 Current & Planned Services
 
 ```
+├── ✅ Product Service (8000) - Product management (Express)
 ├── ✅ Order Service (8001) - Order management (Fastify)
-├── Payment Service (8002) - Payment processing (planned)
-├── User Service - User management (planned)
-├── Notification Service - Email/SMS (planned)
-└── Analytics Service - Business intelligence (planned)
+├── ✅ Payment Service (8002) - Payment processing (Hono + Stripe)
+├── ✅ Auth Service (8003) - User management (Express + Clerk)
+├── ✅ Email Service - Email notifications (Gmail API + Kafka)
+├── Analytics Service - Business intelligence (planned)
+└── Notification Service - SMS/Push notifications (planned)
 ```
 
 ### 🗄️ Database Architecture (Planned)
